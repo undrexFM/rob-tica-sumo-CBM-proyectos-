@@ -1,0 +1,178 @@
+// ROBOT SUMO - Arduino UNO
+// Ultrasonico HC-SR04 + Sensor de linea Steren ARD-377
+// ==================================================
+
+// 1. PINES
+#define MA1 9
+#define MA2 8
+#define MB1 10
+#define MB2 11
+
+#define TRIG 7
+#define ECHO 6
+
+#define LINEA 5   // Salida DO del ARD-377
+
+// 2. CONFIGURACION AJUSTABLE
+
+// Valor de DO cuando el sensor ve NEGRO.
+// Si el robot reacciona al reves, cambia a LOW.
+const int LINEA_NEGRA = HIGH;
+
+const float DISTANCIA_ATAQUE = 35.0;          // cm
+const unsigned long TIMEOUT_ECO = 4000UL;     // us (~65 cm)
+const unsigned long TIEMPO_RETROCESO = 300;   // ms
+const unsigned long TIEMPO_GIRO = 350;        // ms
+const unsigned long ESPERA_INICIAL = 3000;    // ms
+
+// 3. VARIABLES
+unsigned long tiempoEco = 0;
+float distancia = -1;
+
+enum Estado {
+  COMBATE,
+  ESCAPAR_RETROCESO,
+  ESCAPAR_GIRO
+};
+
+Estado estado = COMBATE;
+unsigned long inicioManiobra = 0;
+
+// 4. CONFIGURACION INICIAL
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(MA1, OUTPUT);
+  pinMode(MA2, OUTPUT);
+  pinMode(MB1, OUTPUT);
+  pinMode(MB2, OUTPUT);
+
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+  pinMode(LINEA, INPUT);
+
+  digitalWrite(TRIG, LOW);
+  alto();
+
+  delay(ESPERA_INICIAL);
+}
+
+// 5. BUCLE PRINCIPAL
+void loop() {
+  // El borde tiene prioridad
+  if (estado == COMBATE && detectaLineaNegra()) {
+    atras();
+    estado = ESCAPAR_RETROCESO;
+    inicioManiobra = millis();
+    mensaje("BORDE NEGRO: RETROCEDIENDO");
+    return;
+  }
+
+  if (estado == ESCAPAR_RETROCESO) {
+    if (millis() - inicioManiobra >= TIEMPO_RETROCESO) {
+      derecha();
+      estado = ESCAPAR_GIRO;
+      inicioManiobra = millis();
+      mensaje("ESCAPE: GIRANDO");
+    }
+    return;
+  }
+
+  if (estado == ESCAPAR_GIRO) {
+    if (millis() - inicioManiobra >= TIEMPO_GIRO) {
+      alto();
+      estado = COMBATE;
+      mensaje("ESCAPE COMPLETADO");
+    }
+    return;
+  }
+
+  // Combate normal
+  distancia = medirDistancia();
+
+  if (distancia > 0 && distancia <= DISTANCIA_ATAQUE) {
+    adelante();
+    mensaje("ATACANDO");
+  } else {
+    buscarOponente();
+    mensaje("BUSCANDO OPONENTE");
+  }
+}
+
+// 6. MENSAJES POR SERIAL (solo cuando cambian)
+void mensaje(const char* texto) {
+  static const char* ultimo = "";
+  if (texto != ultimo) {
+    Serial.println(texto);
+    ultimo = texto;
+  }
+}
+
+// 7. DETECCION DE LINEA
+bool detectaLineaNegra() {
+  return digitalRead(LINEA) == LINEA_NEGRA;
+}
+
+// 8. MEDIR DISTANCIA
+float medirDistancia() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+
+  tiempoEco = pulseIn(ECHO, HIGH, TIMEOUT_ECO);
+
+  if (tiempoEco == 0) {
+    return -1;
+  }
+
+  float cm = tiempoEco * 0.0343 / 2.0;
+
+  if (cm < 2 || cm > 300) {
+    return -1;
+  }
+
+  return cm;
+}
+
+// 9. ESTRATEGIA DE BUSQUEDA
+void buscarOponente() {
+  derecha();
+}
+
+// 10. MOVIMIENTO
+void adelante() {
+  digitalWrite(MA1, HIGH);
+  digitalWrite(MA2, LOW);
+  digitalWrite(MB1, HIGH);
+  digitalWrite(MB2, LOW);
+}
+
+void atras() {
+  digitalWrite(MA1, LOW);
+  digitalWrite(MA2, HIGH);
+  digitalWrite(MB1, LOW);
+  digitalWrite(MB2, HIGH);
+}
+
+void derecha() {
+  digitalWrite(MA1, HIGH);
+  digitalWrite(MA2, LOW);
+  digitalWrite(MB1, LOW);
+  digitalWrite(MB2, HIGH);
+}
+
+void izquierda() {
+  digitalWrite(MA1, LOW);
+  digitalWrite(MA2, HIGH);
+  digitalWrite(MB1, HIGH);
+  digitalWrite(MB2, LOW);
+}
+
+void alto() {
+  digitalWrite(MA1, LOW);
+  digitalWrite(MA2, LOW);
+  digitalWrite(MB1, LOW);
+  digitalWrite(MB2, LOW);
+}
